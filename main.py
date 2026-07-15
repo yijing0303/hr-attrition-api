@@ -13,11 +13,10 @@ import uvicorn
 import os
 
 # ============================================================
-# Load the trained model and scaler
+# Load the trained model
 # ============================================================
+print("Loading model...")
 model = joblib.load('model.joblib')
-scaler = joblib.load('scaler.pkl')
-
 print("✅ Model loaded successfully!")
 
 
@@ -58,7 +57,6 @@ class EmployeeData(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    employee_data: Dict[str, Any]
     attrition_probability: float
     attrition_prediction: int
     prediction_label: str
@@ -69,7 +67,7 @@ class PredictionResponse(BaseModel):
 # ============================================================
 app = FastAPI(
     title="HR Employee Attrition Prediction API",
-    description="Predicts employee attrition risk using XGBoost model",
+    description="Predicts employee attrition risk using XGBoost",
     version="1.0.0"
 )
 
@@ -94,46 +92,43 @@ def root():
         "message": "HR Employee Attrition Prediction API",
         "status": "running",
         "model": "XGBoost Optimized",
-        "features": len(EXPECTED_COLUMNS),
-        "endpoints": {
-            "/": "GET - API information",
-            "/health": "GET - Health check",
-            "/predict": "POST - Submit employee data for prediction"
-        }
+        "threshold": 0.37
     }
 
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "healthy",
-        "model_loaded": model is not None,
-        "scaler_loaded": scaler is not None
-    }
+    return {"status": "healthy", "model_loaded": True}
 
 
 @app.post("/predict")
 def predict(employee: EmployeeData):
     try:
+        # Convert to DataFrame
         input_dict = employee.dict()
         input_data = pd.DataFrame([input_dict])
+
+        # Reorder columns
         input_data = input_data[EXPECTED_COLUMNS]
 
+        # Predict
         probability = model.predict_proba(input_data)[0][1]
         threshold = 0.37
-        prediction_binary = 1 if probability >= threshold else 0
+        prediction = 1 if probability >= threshold else 0
 
         return PredictionResponse(
-            employee_data=input_dict,
             attrition_probability=round(float(probability), 4),
-            attrition_prediction=prediction_binary,
-            prediction_label="At Risk" if prediction_binary == 1 else "Stable"
+            attrition_prediction=prediction,
+            prediction_label="At Risk" if prediction == 1 else "Stable"
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
+# ============================================================
+# Run the app
+# ============================================================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
